@@ -33,6 +33,14 @@ const HANGUP_TRIGGERS_FINAL = [
   'gracias por confiar en nosotros'
 ];
 
+// Frases que indican que Cristina va a enviar WhatsApp
+const WHATSAPP_TRIGGERS = [
+  'te mando un whatsapp',
+  'te mando ahora mismo un whatsapp',
+  'envíamelas todas por whatsapp',
+  'te mando el whatsapp'
+];
+
 export default function Home() {
   const [callState, setCallState] = useState<CallState>('idle');
   const [callDuration, setCallDuration] = useState(0);
@@ -42,6 +50,7 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState('9:41');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isFollowupCall, setIsFollowupCall] = useState(false);
+  const [showWhatsAppNotification, setShowWhatsAppNotification] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -248,6 +257,14 @@ export default function Home() {
           // Detectar si Cristina dice que va a colgar
           const messageLower = aiMessage.toLowerCase();
 
+          // Detectar si Cristina menciona WhatsApp para mostrar notificación
+          const shouldShowWhatsApp = WHATSAPP_TRIGGERS.some(trigger => messageLower.includes(trigger));
+          if (shouldShowWhatsApp) {
+            setShowWhatsAppNotification(true);
+            // Ocultar después de 5 segundos
+            setTimeout(() => setShowWhatsAppNotification(false), 5000);
+          }
+
           // En la primera llamada, detectar si va a revisar la factura
           const shouldHangupFirstCall = !isFollowupCallRef.current &&
             HANGUP_TRIGGERS_FIRST_CALL.some(trigger => messageLower.includes(trigger));
@@ -259,25 +276,41 @@ export default function Home() {
           if (shouldHangupFirstCall) {
             // Primera llamada: guardar historial y colgar
             previousMessagesRef.current = [...messages, { role: 'user', content: userMsg }, { role: 'assistant', content: aiMessage }];
+            // Marcar como procesando para evitar que el micro se reactive
+            isProcessingRef.current = true;
             setTimeout(() => {
               stopListening();
+              // Parar audio completamente
+              if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+                audioRef.current.src = '';
+              }
               setIsAISpeaking(false);
-              isProcessingRef.current = false;
               setCallState('ended');
 
               // A los 3 segundos, simular llamada entrante
               setTimeout(() => {
+                isProcessingRef.current = false;
                 setIsFollowupCall(true);
                 setCallState('incoming');
                 ringStopRef.current = playRing();
               }, 3000);
             }, 1500);
+            return; // Salir para evitar resetear isProcessingRef
           } else if (shouldHangupFinal) {
             // Segunda llamada: colgar definitivamente
+            // Marcar como procesando para evitar que el micro se reactive
+            isProcessingRef.current = true;
             setTimeout(() => {
               stopListening();
+              // Parar audio completamente
+              if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+                audioRef.current.src = '';
+              }
               setIsAISpeaking(false);
-              isProcessingRef.current = false;
               setCallState('ended');
               // No hay llamada de seguimiento, termina aquí
               setTimeout(() => {
@@ -285,8 +318,10 @@ export default function Home() {
                 setMessages([]);
                 setIsFollowupCall(false);
                 previousMessagesRef.current = []; // Limpiar historial
+                isProcessingRef.current = false;
               }, 3000);
             }, 1500);
+            return; // Salir para evitar resetear isProcessingRef
           }
         }
       }
@@ -384,10 +419,14 @@ export default function Home() {
   }, [processTranscription]);
 
   // Reiniciar escucha después de que la IA termine de hablar
+  // Solo si la llamada está activa y no estamos en proceso de colgar
   useEffect(() => {
     if (callState === 'active' && !isAISpeaking && !isListening && !isProcessingRef.current) {
       const timeout = setTimeout(() => {
-        startListening();
+        // Verificar de nuevo antes de iniciar (por si cambió el estado)
+        if (callState === 'active' && !isProcessingRef.current) {
+          startListening();
+        }
       }, 300);
       return () => clearTimeout(timeout);
     }
@@ -628,6 +667,24 @@ export default function Home() {
       </div>
 
       <audio ref={audioRef} />
+
+      {/* Notificación de WhatsApp */}
+      {showWhatsAppNotification && (
+        <div className="whatsapp-notification">
+          <img src="/images/whatsapp-icon.png" alt="WhatsApp" className="whatsapp-icon" />
+          <div className="whatsapp-content">
+            <div className="whatsapp-header">
+              <span className="whatsapp-name">Cristina - Syntalys</span>
+              <span className="whatsapp-time">ahora</span>
+            </div>
+            <div className="whatsapp-message">
+              Hola!!😊{'\n'}
+              Soy Cristina, del departamento de energía.{'\n'}
+              Para revisar tu ahorro, envíame por aquí una foto de tu factura de luz.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
