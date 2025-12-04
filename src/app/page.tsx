@@ -51,6 +51,8 @@ export default function Home() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isFollowupCall, setIsFollowupCall] = useState(false);
   const [showWhatsAppNotification, setShowWhatsAppNotification] = useState(false);
+  const whatsappShownRef = useRef(false); // Para evitar mostrar WhatsApp 2 veces
+  const callStateRef = useRef<CallState>('idle'); // Ref para verificar estado en callbacks
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -66,10 +68,18 @@ export default function Home() {
   const isFollowupCallRef = useRef(false);
   const previousMessagesRef = useRef<Message[]>([]); // Guardar historial de la primera llamada
 
-  // Mantener ref actualizada
+  // Mantener refs actualizadas
   useEffect(() => {
     isFollowupCallRef.current = isFollowupCall;
   }, [isFollowupCall]);
+
+  useEffect(() => {
+    callStateRef.current = callState;
+    // Reset whatsapp flag cuando la llamada termina
+    if (callState === 'idle') {
+      whatsappShownRef.current = false;
+    }
+  }, [callState]);
 
   const dialPad = [
     { num: '1', letters: '' },
@@ -181,6 +191,12 @@ export default function Home() {
   // Hablar texto con la voz de ElevenLabs
   const speakText = useCallback(async (text: string): Promise<void> => {
     return new Promise(async (resolve) => {
+      // Verificar si la llamada sigue activa
+      if (callStateRef.current !== 'active') {
+        resolve();
+        return;
+      }
+
       stopListening(); // Parar escucha antes de hablar
       setIsAISpeaking(true);
 
@@ -191,6 +207,14 @@ export default function Home() {
           body: JSON.stringify({ text, voiceId: VOICE_ID }),
         });
         if (!res.ok) throw new Error();
+
+        // Verificar de nuevo antes de reproducir
+        if (callStateRef.current !== 'active') {
+          setIsAISpeaking(false);
+          resolve();
+          return;
+        }
+
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
 
@@ -257,9 +281,11 @@ export default function Home() {
           // Detectar si Cristina dice que va a colgar
           const messageLower = aiMessage.toLowerCase();
 
-          // Detectar si Cristina menciona WhatsApp para mostrar notificación
-          const shouldShowWhatsApp = WHATSAPP_TRIGGERS.some(trigger => messageLower.includes(trigger));
+          // Detectar si Cristina menciona WhatsApp para mostrar notificación (solo una vez por llamada)
+          const shouldShowWhatsApp = !whatsappShownRef.current &&
+            WHATSAPP_TRIGGERS.some(trigger => messageLower.includes(trigger));
           if (shouldShowWhatsApp) {
+            whatsappShownRef.current = true; // Marcar como mostrado
             setShowWhatsAppNotification(true);
             // Ocultar después de 5 segundos
             setTimeout(() => setShowWhatsAppNotification(false), 5000);
@@ -278,6 +304,8 @@ export default function Home() {
             previousMessagesRef.current = [...messages, { role: 'user', content: userMsg }, { role: 'assistant', content: aiMessage }];
             // Marcar como procesando para evitar que el micro se reactive
             isProcessingRef.current = true;
+            // Cambiar el estado inmediatamente en el ref para que speakText lo detecte
+            callStateRef.current = 'ended';
             setTimeout(() => {
               stopListening();
               // Parar audio completamente
@@ -285,6 +313,7 @@ export default function Home() {
                 audioRef.current.pause();
                 audioRef.current.currentTime = 0;
                 audioRef.current.src = '';
+                audioRef.current.load();
               }
               setIsAISpeaking(false);
               setCallState('ended');
@@ -293,15 +322,18 @@ export default function Home() {
               setTimeout(() => {
                 isProcessingRef.current = false;
                 setIsFollowupCall(true);
+                callStateRef.current = 'incoming';
                 setCallState('incoming');
                 ringStopRef.current = playRing();
               }, 3000);
-            }, 1500);
+            }, 500); // Reducido a 500ms para que cuelgue más rápido
             return; // Salir para evitar resetear isProcessingRef
           } else if (shouldHangupFinal) {
             // Segunda llamada: colgar definitivamente
             // Marcar como procesando para evitar que el micro se reactive
             isProcessingRef.current = true;
+            // Cambiar el estado inmediatamente en el ref para que speakText lo detecte
+            callStateRef.current = 'ended';
             setTimeout(() => {
               stopListening();
               // Parar audio completamente
@@ -309,18 +341,20 @@ export default function Home() {
                 audioRef.current.pause();
                 audioRef.current.currentTime = 0;
                 audioRef.current.src = '';
+                audioRef.current.load();
               }
               setIsAISpeaking(false);
               setCallState('ended');
               // No hay llamada de seguimiento, termina aquí
               setTimeout(() => {
+                callStateRef.current = 'idle';
                 setCallState('idle');
                 setMessages([]);
                 setIsFollowupCall(false);
                 previousMessagesRef.current = []; // Limpiar historial
                 isProcessingRef.current = false;
               }, 3000);
-            }, 1500);
+            }, 500); // Reducido a 500ms para que cuelgue más rápido
             return; // Salir para evitar resetear isProcessingRef
           }
         }
@@ -433,10 +467,12 @@ export default function Home() {
   }, [callState, isAISpeaking, isListening, startListening]);
 
   const startCall = async () => {
+    callStateRef.current = 'calling';
     setCallState('calling');
     ringStopRef.current = playRing();
     setTimeout(() => {
       ringStopRef.current?.();
+      callStateRef.current = 'active';
       setCallState('active');
       setMessages([]);
       setMessages([{ role: 'assistant', content: GREETING }]);
@@ -457,13 +493,20 @@ export default function Home() {
 
   const endCall = () => {
     ringStopRef.current?.();
+    // Cambiar ref inmediatamente para que otras funciones lo detecten
+    callStateRef.current = 'ended';
+    isProcessingRef.current = true;
     stopListening();
     stopAudio(); // Parar audio inmediatamente
     setCallState('ended');
     setIsFollowupCall(false);
-    isProcessingRef.current = false;
     previousMessagesRef.current = []; // Limpiar historial
-    setTimeout(() => { setCallState('idle'); setMessages([]); }, 2000);
+    setTimeout(() => {
+      callStateRef.current = 'idle';
+      setCallState('idle');
+      setMessages([]);
+      isProcessingRef.current = false;
+    }, 2000);
   };
 
   // Aceptar llamada entrante (followup)
@@ -471,6 +514,7 @@ export default function Home() {
     ringStopRef.current?.();
     // Resetear estados para que el micrófono funcione
     isProcessingRef.current = false;
+    callStateRef.current = 'active';
     setIsListening(false);
     setIsSpeaking(false);
     setIsAISpeaking(false);
