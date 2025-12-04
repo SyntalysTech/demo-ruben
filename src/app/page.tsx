@@ -12,7 +12,7 @@ interface Message {
 // Configuración de voz y saludos
 const VOICE_ID = 'ERYLdjEaddaiN9sDjaMX';
 const AGENT_NAME = 'Cristina';
-const GREETING = '¡Rubén! Sí, mira, soy Cristina, de Syntalys Tech. Estoy entre reuniones ahora mismo y tengo literalmente treinta segunditos, o sea que yo tampoco tengo mucho tiempo para explicarte todo. Nada, te llamo por algo muy rápido. Estamos revisando facturas de luz de empresas como la tuya, y ya hemos ayudado a gente como Mario o Dani a ahorrarse unos cincuenta euros al mes, sin que ellos tuvieran que hacer prácticamente nada. ¿Sería una locura ver si podemos hacer algo parecido contigo... o lo descartamos y ya está?';
+const GREETING = '¡Rubén! Sí, mira, soy Cristina, de Syntalys Tech. Estoy entre reuniones ahora mismo y tengo literalmente treinta segunditos, así que no tengo mucho tiempo. Nada, te llamo por algo muy rápido. Estamos revisando facturas de luz de empresas como la tuya, y ya hemos ayudado a gente como Mario o Dani a ahorrarse unos cincuenta euros al mes, sin que ellos tuvieran que hacer prácticamente nada. ¿Sería una locura ver si podemos hacer algo parecido contigo... o lo descartamos y ya está?';
 
 // Mensaje de seguimiento con el ahorro - YA sabe que es titular y tiene la factura
 const FOLLOWUP_GREETING = '¡Rubéeen! ¡Soy Cristina! Oye, qué bien que te pillo. Mira, acabo de salir de la reunión y tengo una noticia que te va a encantar. He revisado tu factura y... treinta y siete euritos al mes. O sea, cuatrocientos y pico al año que te estás dejando ahí tirados. El cambio es facilísimo, nosotros nos encargamos de absolutamente todo. ¿Qué me dices, lo cerramos ya?';
@@ -37,7 +37,14 @@ const HANGUP_TRIGGERS_FINAL = [
 const HANGUP_NO_FOLLOWUP = [
   'cuando lo queráis revisar estoy por aquí',
   'gracias, rubén. hasta luego',
-  'gracias rubén. hasta luego'
+  'gracias rubén. hasta luego',
+  'no te molesto más',
+  'entiendo perfectamente',
+  'cuando cambies de opinión',
+  'aquí estaré',
+  'que vaya bien',
+  'sin problema, rubén',
+  'vale, pues nada'
 ];
 
 // Frases que indican callback a una hora específica (cliente no tiene tiempo pero quedamos a otra hora)
@@ -589,7 +596,7 @@ export default function Home() {
                 isRecordingRef.current = false;
               }
               silenceTimeoutRef.current = null;
-            }, 1200);
+            }, 700);
           }
         }
 
