@@ -12,7 +12,7 @@ interface Message {
 // Configuración de voz y saludos
 const VOICE_ID = 'ERYLdjEaddaiN9sDjaMX';
 const AGENT_NAME = 'Cristina';
-const GREETING = '¡Rubén! ¿Rubén? Sí, mira, soy Cristina, de Syntalys Tech. Estoy entre reuniones ahora mismo y tengo literalmente treinta segunditos, o sea que yo tampoco tengo mucho tiempo para explicarte todo. Nada, te llamo por algo muy rápido. Estamos revisando facturas de luz de empresas como la tuya, y ya hemos ayudado a gente como Mario o Dani a ahorrarse unos cincuenta euros al mes, sin que ellos tuvieran que hacer prácticamente nada. ¿Sería una locura ver si podemos hacer algo parecido contigo... o lo descartamos y ya está?';
+const GREETING = '¡Rubén! Sí, mira, soy Cristina, de Syntalys Tech. Estoy entre reuniones ahora mismo y tengo literalmente treinta segunditos, o sea que yo tampoco tengo mucho tiempo para explicarte todo. Nada, te llamo por algo muy rápido. Estamos revisando facturas de luz de empresas como la tuya, y ya hemos ayudado a gente como Mario o Dani a ahorrarse unos cincuenta euros al mes, sin que ellos tuvieran que hacer prácticamente nada. ¿Sería una locura ver si podemos hacer algo parecido contigo... o lo descartamos y ya está?';
 
 // Mensaje de seguimiento con el ahorro - YA sabe que es titular y tiene la factura
 const FOLLOWUP_GREETING = '¡Rubéeen! ¡Soy Cristina! Oye, qué bien que te pillo. Mira, acabo de salir de la reunión y tengo una noticia que te va a encantar. He revisado tu factura y... treinta y siete euritos al mes. O sea, cuatrocientos y pico al año que te estás dejando ahí tirados. El cambio es facilísimo, nosotros nos encargamos de todo, tú no tienes que hacer nada de nada. ¿Qué me dices, lo cerramos ya?';
