@@ -17,11 +17,11 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify({
           text: text,
-          model_id: 'eleven_turbo_v2_5',
+          model_id: 'eleven_multilingual_v2',
           voice_settings: {
-            stability: 0.70,        // Mayor estabilidad = cadencia más consistente
-            similarity_boost: 0.80, // Mantener la voz similar
-            style: 0.15,            // Un poco de estilo para que suene más natural
+            stability: 0.85,        // Alta estabilidad para evitar "eeee" y divagaciones
+            similarity_boost: 0.75, // Mantener la voz similar
+            style: 0.0,             // Sin estilo extra para evitar sonidos raros
             use_speaker_boost: true // Mejorar claridad
           }
         }),

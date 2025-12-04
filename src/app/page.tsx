@@ -15,7 +15,7 @@ const AGENT_NAME = 'Cristina';
 const GREETING = '¡Rubén! Sí, mira, soy Cristina, de Syntalys Tech. Estoy entre reuniones ahora mismo y tengo literalmente treinta segunditos, o sea que yo tampoco tengo mucho tiempo para explicarte todo. Nada, te llamo por algo muy rápido. Estamos revisando facturas de luz de empresas como la tuya, y ya hemos ayudado a gente como Mario o Dani a ahorrarse unos cincuenta euros al mes, sin que ellos tuvieran que hacer prácticamente nada. ¿Sería una locura ver si podemos hacer algo parecido contigo... o lo descartamos y ya está?';
 
 // Mensaje de seguimiento con el ahorro - YA sabe que es titular y tiene la factura
-const FOLLOWUP_GREETING = '¡Rubéeen! ¡Soy Cristina! Oye, qué bien que te pillo. Mira, acabo de salir de la reunión y tengo una noticia que te va a encantar. He revisado tu factura y... treinta y siete euritos al mes. O sea, cuatrocientos y pico al año que te estás dejando ahí tirados. El cambio es facilísimo, nosotros nos encargamos de todo, tú no tienes que hacer nada de nada. ¿Qué me dices, lo cerramos ya?';
+const FOLLOWUP_GREETING = '¡Rubéeen! ¡Soy Cristina! Oye, qué bien que te pillo. Mira, acabo de salir de la reunión y tengo una noticia que te va a encantar. He revisado tu factura y... treinta y siete euritos al mes. O sea, cuatrocientos y pico al año que te estás dejando ahí tirados. El cambio es facilísimo, nosotros nos encargamos de absolutamente todo. ¿Qué me dices, lo cerramos ya?';
 
 // Frases EXACTAS que indican que Cristina se despide DESPUÉS de que el usuario confirmó
 // Solo triggers muy específicos de despedida final - deben ser frases completas de cierre
@@ -31,6 +31,18 @@ const HANGUP_TRIGGERS_FINAL = [
   'pues queda cerrado',
   'ya está todo listo',
   'gracias por confiar en nosotros'
+];
+
+// Frases que indican fin de llamada SIN segunda llamada (cliente rechaza completamente)
+const HANGUP_NO_FOLLOWUP = [
+  'cuando lo queráis revisar estoy por aquí',
+  'gracias, rubén. hasta luego',
+  'gracias rubén. hasta luego'
+];
+
+// Frases que indican callback a una hora específica (cliente no tiene tiempo pero quedamos a otra hora)
+const HANGUP_CALLBACK = [
+  'te llamo a las'
 ];
 
 // Frases que indican que Cristina va a enviar WhatsApp
@@ -50,9 +62,12 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState('9:41');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isFollowupCall, setIsFollowupCall] = useState(false);
+  const [isCallbackCall, setIsCallbackCall] = useState(false); // Llamada de callback (quedamos a una hora)
   const [showWhatsAppNotification, setShowWhatsAppNotification] = useState(false);
   const whatsappShownRef = useRef(false); // Para evitar mostrar WhatsApp 2 veces
   const callStateRef = useRef<CallState>('idle'); // Ref para verificar estado en callbacks
+  const callbackTimeRef = useRef<string>(''); // Hora a la que quedamos para callback
+  const callbackForTitularRef = useRef<boolean>(false); // Si el callback es para hablar con el titular
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -67,6 +82,9 @@ export default function Home() {
   const isProcessingRef = useRef(false);
   const isFollowupCallRef = useRef(false);
   const previousMessagesRef = useRef<Message[]>([]); // Guardar historial de la primera llamada
+  const bargeInStreamRef = useRef<MediaStream | null>(null); // Stream para detectar barge-in
+  const bargeInContextRef = useRef<AudioContext | null>(null);
+  const bargeInAnalyserRef = useRef<AnalyserNode | null>(null);
 
   // Mantener refs actualizadas
   useEffect(() => {
@@ -188,7 +206,26 @@ export default function Home() {
     setIsSpeaking(false);
   }, []);
 
-  // Hablar texto con la voz de ElevenLabs
+  // Función para interrumpir el audio de la IA (barge-in)
+  const interruptAI = useCallback(() => {
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setIsAISpeaking(false);
+    }
+    // Limpiar barge-in detection
+    if (bargeInStreamRef.current) {
+      bargeInStreamRef.current.getTracks().forEach(t => t.stop());
+      bargeInStreamRef.current = null;
+    }
+    if (bargeInContextRef.current?.state !== 'closed') {
+      try { bargeInContextRef.current?.close(); } catch {}
+    }
+    bargeInContextRef.current = null;
+    bargeInAnalyserRef.current = null;
+  }, []);
+
+  // Hablar texto con la voz de ElevenLabs (con escucha continua para barge-in)
   const speakText = useCallback(async (text: string): Promise<void> => {
     return new Promise(async (resolve) => {
       // Verificar si la llamada sigue activa
@@ -197,8 +234,36 @@ export default function Home() {
         return;
       }
 
-      stopListening(); // Parar escucha antes de hablar
+      stopListening();
       setIsAISpeaking(true);
+
+      let wasInterrupted = false;
+      let bargeInRecorder: MediaRecorder | null = null;
+      let bargeInChunks: Blob[] = [];
+      let checkInterval: NodeJS.Timeout | null = null;
+
+      // Función para limpiar barge-in
+      const cleanupBargeIn = () => {
+        if (checkInterval) {
+          clearInterval(checkInterval);
+          checkInterval = null;
+        }
+        if (bargeInRecorder?.state === 'recording') {
+          try { bargeInRecorder.stop(); } catch {}
+        }
+        bargeInRecorder = null;
+        if (bargeInStreamRef.current) {
+          bargeInStreamRef.current.getTracks().forEach(t => t.stop());
+          bargeInStreamRef.current = null;
+        }
+      };
+
+      // Desactivado: el barge-in causaba cortes porque el micrófono captaba el audio de la IA
+      // y lo interpretaba como si el usuario estuviera hablando.
+      // El usuario debe esperar a que la IA termine de hablar.
+      const setupContinuousListening = async () => {
+        // No hacer nada - barge-in desactivado
+      };
 
       try {
         const res = await fetch('/api/speech', {
@@ -208,7 +273,6 @@ export default function Home() {
         });
         if (!res.ok) throw new Error();
 
-        // Verificar de nuevo antes de reproducir
         if (callStateRef.current !== 'active') {
           setIsAISpeaking(false);
           resolve();
@@ -220,13 +284,21 @@ export default function Home() {
 
         if (audioRef.current) {
           audioRef.current.src = url;
+
+          // Iniciar escucha continua
+          setupContinuousListening();
+
           audioRef.current.onended = () => {
-            setIsAISpeaking(false);
+            if (!wasInterrupted) {
+              setIsAISpeaking(false);
+              cleanupBargeIn();
+            }
             URL.revokeObjectURL(url);
             resolve();
           };
           audioRef.current.onerror = () => {
             setIsAISpeaking(false);
+            cleanupBargeIn();
             URL.revokeObjectURL(url);
             resolve();
           };
@@ -237,10 +309,11 @@ export default function Home() {
         }
       } catch {
         setIsAISpeaking(false);
+        cleanupBargeIn();
         resolve();
       }
     });
-  }, [stopListening]);
+  }, [stopListening, interruptAI]);
 
   // Procesar transcripción y obtener respuesta IA
   const processTranscription = useCallback(async (blob: Blob) => {
@@ -291,15 +364,94 @@ export default function Home() {
             setTimeout(() => setShowWhatsAppNotification(false), 5000);
           }
 
+          // Detectar si hay que colgar SIN segunda llamada (no tiene tiempo, rechaza, etc.)
+          const shouldHangupNoFollowup = HANGUP_NO_FOLLOWUP.some(trigger => messageLower.includes(trigger));
+
+          // Detectar si hay callback a una hora específica ("te llamo a las X")
+          const shouldHangupCallback = HANGUP_CALLBACK.some(trigger => messageLower.includes(trigger));
+          // Extraer la hora del mensaje si es callback
+          if (shouldHangupCallback) {
+            const horaMatch = aiMessage.match(/te llamo a las?\s*(\d{1,2}(?::\d{2})?(?:\s*(?:de la mañana|de la tarde|de la noche|h)?)?)/i);
+            if (horaMatch) {
+              callbackTimeRef.current = horaMatch[1];
+            }
+            // Detectar si el callback es para hablar con el titular (revisar TODO el historial de la conversación)
+            const allMessages = [...messages, { role: 'user', content: userMsg }, { role: 'assistant', content: aiMessage }];
+            callbackForTitularRef.current = allMessages.some(m =>
+              m.content.toLowerCase().includes('tu padre') ||
+              m.content.toLowerCase().includes('tu madre') ||
+              m.content.toLowerCase().includes('el titular') ||
+              m.content.toLowerCase().includes('cuando esté él') ||
+              m.content.toLowerCase().includes('no soy titular')
+            );
+          }
+
           // En la primera llamada, detectar si va a revisar la factura
           const shouldHangupFirstCall = !isFollowupCallRef.current &&
+            !shouldHangupNoFollowup &&
+            !shouldHangupCallback &&
             HANGUP_TRIGGERS_FIRST_CALL.some(trigger => messageLower.includes(trigger));
 
           // En la segunda llamada, detectar despedida final
           const shouldHangupFinal = isFollowupCallRef.current &&
             HANGUP_TRIGGERS_FINAL.some(trigger => messageLower.includes(trigger));
 
-          if (shouldHangupFirstCall) {
+          if (shouldHangupCallback) {
+            // Guardar historial para la llamada de callback
+            previousMessagesRef.current = [...messages, { role: 'user', content: userMsg }, { role: 'assistant', content: aiMessage }];
+            // Colgar y hacer callback a la hora acordada
+            isProcessingRef.current = true;
+            callStateRef.current = 'ended';
+            setTimeout(() => {
+              stopListening();
+              if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+                audioRef.current.src = '';
+                audioRef.current.load();
+              }
+              setIsAISpeaking(false);
+              setCallState('ended');
+              // A los 3 segundos, simular llamada de callback
+              setTimeout(() => {
+                isProcessingRef.current = false;
+                setIsCallbackCall(true);
+                setIsFollowupCall(false);
+                callStateRef.current = 'incoming';
+                setCallState('incoming');
+                ringStopRef.current = playRing();
+              }, 3000);
+            }, 500);
+            return;
+          } else if (shouldHangupNoFollowup) {
+            // Colgar SIN segunda llamada (cliente rechaza completamente)
+            isProcessingRef.current = true;
+            callStateRef.current = 'ended';
+            setTimeout(() => {
+              stopListening();
+              if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+                audioRef.current.src = '';
+                audioRef.current.load();
+              }
+              setIsAISpeaking(false);
+              setCallState('ended');
+              // Volver a idle sin segunda llamada
+              setTimeout(() => {
+                callStateRef.current = 'idle';
+                setCallState('idle');
+                setMessages([]);
+                setIsFollowupCall(false);
+                setIsCallbackCall(false);
+                previousMessagesRef.current = [];
+                callbackTimeRef.current = '';
+                callbackForTitularRef.current = false;
+                isProcessingRef.current = false;
+              }, 3000);
+            }, 500);
+            return;
+          } else if (shouldHangupFirstCall) {
             // Primera llamada: guardar historial y colgar
             previousMessagesRef.current = [...messages, { role: 'user', content: userMsg }, { role: 'assistant', content: aiMessage }];
             // Marcar como procesando para evitar que el micro se reactive
@@ -351,7 +503,10 @@ export default function Home() {
                 setCallState('idle');
                 setMessages([]);
                 setIsFollowupCall(false);
+                setIsCallbackCall(false);
                 previousMessagesRef.current = []; // Limpiar historial
+                callbackTimeRef.current = '';
+                callbackForTitularRef.current = false;
                 isProcessingRef.current = false;
               }, 3000);
             }, 500); // Reducido a 500ms para que cuelgue más rápido
@@ -488,6 +643,16 @@ export default function Home() {
       audioRef.current.src = '';
       audioRef.current.load();
     }
+    // Limpiar barge-in también
+    if (bargeInStreamRef.current) {
+      bargeInStreamRef.current.getTracks().forEach(t => t.stop());
+      bargeInStreamRef.current = null;
+    }
+    if (bargeInContextRef.current?.state !== 'closed') {
+      try { bargeInContextRef.current?.close(); } catch {}
+    }
+    bargeInContextRef.current = null;
+    bargeInAnalyserRef.current = null;
     setIsAISpeaking(false);
   }, []);
 
@@ -500,7 +665,10 @@ export default function Home() {
     stopAudio(); // Parar audio inmediatamente
     setCallState('ended');
     setIsFollowupCall(false);
-    previousMessagesRef.current = []; // Limpiar historial
+    setIsCallbackCall(false);
+    previousMessagesRef.current = [];
+    callbackTimeRef.current = '';
+    callbackForTitularRef.current = false;
     setTimeout(() => {
       callStateRef.current = 'idle';
       setCallState('idle');
@@ -509,7 +677,7 @@ export default function Home() {
     }, 2000);
   };
 
-  // Aceptar llamada entrante (followup)
+  // Aceptar llamada entrante (followup o callback)
   const acceptIncomingCall = () => {
     ringStopRef.current?.();
     // Resetear estados para que el micrófono funcione
@@ -520,10 +688,38 @@ export default function Home() {
     setIsAISpeaking(false);
     setCallState('active');
     setCallDuration(0);
-    // Mantener el historial de la primera llamada + añadir el greeting de followup
-    const historialPrevio = previousMessagesRef.current;
-    setMessages([...historialPrevio, { role: 'assistant', content: FOLLOWUP_GREETING }]);
-    speakText(FOLLOWUP_GREETING);
+
+    // Determinar qué mensaje usar según el tipo de llamada
+    let greeting = '';
+    if (isCallbackCall) {
+      const hora = callbackTimeRef.current || 'esta hora';
+      // Usar el ref que guardamos cuando se programó el callback
+      const wasForTitular = callbackForTitularRef.current;
+
+      if (wasForTitular) {
+        // Callback para hablar con el titular - añadir contexto para GPT
+        greeting = `¡Rubén! Soy Cristina, de Syntalys Tech. Me habías dicho que te llamara a las ${hora} que ya estaría tu padre por casa. ¿Está por ahí?`;
+        // Añadir mensaje de contexto para que GPT entienda la situación
+        const contexto = { role: 'user' as const, content: '[CONTEXTO: Esta es una llamada de callback. Rubén te dijo antes que su padre es el titular y que no estaba. Quedaste en llamar a esta hora para hablar con el padre. Si dice que sí está, pide que te lo pase y espera. Si dice que no está, pregunta a qué hora estará.]' };
+        setMessages([contexto, { role: 'assistant', content: greeting }]);
+      } else {
+        // Callback normal (cliente no tenía tiempo)
+        greeting = `¡Rubén! Soy Cristina, de Syntalys Tech. Habíamos quedado en hablar a las ${hora}. Bueno, pues como te dije, estamos revisando facturas de luz para ver si puedes ahorrar. ¿Eres el titular del contrato?`;
+        setMessages([{ role: 'assistant', content: greeting }]);
+      }
+      // Limpiar estados de callback
+      setIsCallbackCall(false);
+      callbackTimeRef.current = '';
+      callbackForTitularRef.current = false;
+      previousMessagesRef.current = [];
+    } else if (isFollowupCall) {
+      // Llamada de followup normal (ya revisamos la factura)
+      greeting = FOLLOWUP_GREETING;
+      const historialPrevio = previousMessagesRef.current;
+      setMessages([...historialPrevio, { role: 'assistant', content: greeting }]);
+    }
+
+    speakText(greeting);
   };
 
   // Rechazar llamada entrante
@@ -531,8 +727,11 @@ export default function Home() {
     ringStopRef.current?.();
     setCallState('idle');
     setIsFollowupCall(false);
+    setIsCallbackCall(false);
     setMessages([]);
-    previousMessagesRef.current = []; // Limpiar historial
+    previousMessagesRef.current = [];
+    callbackTimeRef.current = '';
+    callbackForTitularRef.current = false;
   };
 
   return (
